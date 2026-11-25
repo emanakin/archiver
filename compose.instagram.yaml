@@ -1,0 +1,19 @@
+# Opt-in image/session mounts. Package source and prepare the key before using.
+services:
+  api:
+    image: archive-desk-instagram-api:local
+    build:
+      target: instagram
+  migrate:
+    image: archive-desk-instagram-migrate:local
+    build:
+      target: instagram
+  worker:
+    image: archive-desk-instagram-worker:local
+    build:
+      target: instagram-worker
+    volumes:
+      - instagram-sessions:/var/lib/archive-desk/sessions
+      - ./secrets/instagram_session_key:/run/secrets/instagram_session_key:ro
+volumes:
+  instagram-sessions:

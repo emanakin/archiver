@@ -1,0 +1,22 @@
+# Use a private Cloudflare R2 bucket for new originals.
+services:
+  api:
+    environment: &r2-env
+      CONTENT_STORAGE_BACKEND: r2
+      CONTENT_R2_CREDENTIALS_FILE: /run/secrets/content_r2
+    volumes:
+      - type: bind
+        source: ./secrets/content_r2.json
+        target: /run/secrets/content_r2
+        read_only: true
+        bind:
+          create_host_path: false
+  worker:
+    environment: *r2-env
+    volumes:
+      - type: bind
+        source: ./secrets/content_r2.json
+        target: /run/secrets/content_r2
+        read_only: true
+        bind:
+          create_host_path: false

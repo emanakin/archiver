@@ -1,0 +1,26 @@
+{
+  auto_https disable_redirects
+  admin off
+}
+{$SITE_ADDRESS} {
+  encode gzip
+  basic_auth {
+    {$DASHBOARD_USER} {$DASHBOARD_PASSWORD_HASH}
+  }
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy same-origin
+    X-Frame-Options DENY
+  }
+  handle /api/* {
+    reverse_proxy api:8000 {
+      header_up X-Internal-Token {$INTERNAL_API_TOKEN}
+      header_up -Authorization
+    }
+  }
+  handle {
+    reverse_proxy web:3000 {
+      header_up -Authorization
+    }
+  }
+}

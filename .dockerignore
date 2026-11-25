@@ -1,0 +1,8 @@
+.git
+.env
+secrets
+backups
+node_modules
+.next
+.venv
+__pycache__

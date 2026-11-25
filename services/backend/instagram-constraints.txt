@@ -1,0 +1,9 @@
+# Resolved in the reviewed optional image; main constraints also apply.
+instagrapi==3.2.15
+requests==2.34.2
+urllib3==2.8.0
+charset-normalizer==3.5.2
+curl_cffi==0.17.0
+pillow==13.0.0
+PySocks==1.7.1
+pycryptodomex==3.24.2

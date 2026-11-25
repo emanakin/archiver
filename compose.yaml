@@ -1,0 +1,125 @@
+name: archive-desk
+x-python: &python
+  build:
+    context: ./services/backend
+    target: instagram
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://archive:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/archive
+    INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?Set INTERNAL_API_TOKEN}
+    APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+    ADAPTER_MODE: ${ADAPTER_MODE:-read_only}
+    WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-3}
+    DM_POLL_INTERVAL_SECONDS: ${DM_POLL_INTERVAL_SECONDS:-900}
+    DM_DEFAULT_ACCOUNT_ID: ${DM_DEFAULT_ACCOUNT_ID:-}
+    DM_DEFAULT_FROM: ${DM_DEFAULT_FROM:-}
+    DM_CAPTION_MODEL: ${DM_CAPTION_MODEL:-}
+    DM_CAPTION_VISION_MODEL: ${DM_CAPTION_VISION_MODEL:-}
+    DM_CAPTION_SOURCES: ${DM_CAPTION_SOURCES:-}
+    DM_CAPTION_V2: ${DM_CAPTION_V2:-true}
+    DM_EDITORIAL_MODEL: ${DM_EDITORIAL_MODEL:-qwen2.5:1.5b-instruct}
+    DM_WHISPER_MODEL_FILE: ${DM_WHISPER_MODEL_FILE:-/opt/archive-whisper/base.bin}
+    DM_CAPTION_AUTOPOST: ${DM_CAPTION_AUTOPOST:-false}
+    DM_REEL_INGEST: ${DM_REEL_INGEST:-true}
+    DM_REEL_AUTOPOST: ${DM_REEL_AUTOPOST:-false}
+    DM_SPOTIFY_PLAYLIST_ID: ${DM_SPOTIFY_PLAYLIST_ID:-}
+    DM_SPOTIFY_REFRESH_MINUTES: ${DM_SPOTIFY_REFRESH_MINUTES:-240}
+    DM_SELF_RECEIPTS: ${DM_SELF_RECEIPTS:-false}
+    CONTENT_STORAGE_BACKEND: ${CONTENT_STORAGE_BACKEND:-local}
+    CONTENT_BUCKET: ${CONTENT_BUCKET:-}
+    CONTENT_S3_ENDPOINT: ${CONTENT_S3_ENDPOINT:-}
+    CONTENT_S3_REGION: ${CONTENT_S3_REGION:-us-east-1}
+    CONTENT_R2_BUCKET: ${CONTENT_R2_BUCKET:-}
+    CONTENT_R2_ENDPOINT: ${CONTENT_R2_ENDPOINT:-}
+  init: true
+  logging: &logging
+    driver: json-file
+    options: {max-size: '10m', max-file: '3'}
+services:
+  db:
+    image: postgres:16-alpine@sha256:a5074487380d4e686036ce61ed6f2d363939ae9a0c40123d1a9e3bb3a5f344b4
+    environment:
+      POSTGRES_DB: archive
+      POSTGRES_USER: archive
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U archive -d archive']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    mem_limit: 512m
+    logging: *logging
+  migrate:
+    <<: *python
+    command: [alembic, upgrade, head]
+    depends_on:
+      db: {condition: service_healthy}
+    restart: 'no'
+  api:
+    <<: *python
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, '8000', --workers, '1', --no-access-log]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    mem_limit: 384m
+    volumes:
+      - content-assets:/var/lib/archive-desk/content
+  worker:
+    <<: *python
+    command: [python, -m, app.worker]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+    stop_grace_period: 45s
+    mem_limit: 1024m
+    volumes:
+      - instagram-sessions:/var/lib/archive-desk/sessions
+      - ./secrets/instagram_session_key:/run/secrets/instagram_session_key:ro
+      - content-assets:/var/lib/archive-desk/content
+  web:
+    build: ./apps/web
+    init: true
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: '1'
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 512m
+    logging: *logging
+  proxy:
+    image: caddy:2-alpine@sha256:953131cfea8e12bfe1c631a36308e9660e4389f0c3dfb3be957044d3ac92d446
+    ports:
+      - '${BIND_ADDRESS:-127.0.0.1}:${HOST_HTTP_PORT:-8080}:8080'
+      - '${BIND_ADDRESS:-127.0.0.1}:${HOST_HTTPS_PORT:-8443}:443'
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:8080}
+      DASHBOARD_USER: ${DASHBOARD_USER:-owner}
+      DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:?Set DASHBOARD_PASSWORD_HASH}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?Set INTERNAL_API_TOKEN}
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api: {condition: service_healthy}
+      web: {condition: service_healthy}
+    restart: unless-stopped
+    mem_limit: 128m
+    logging: *logging
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+  instagram-sessions:
+  content-assets:

@@ -1,0 +1,25 @@
+# Disposable local HTTPS validation; the validator supplies a unique project.
+services:
+  proxy-tls:
+    image: caddy:2-alpine@sha256:953131cfea8e12bfe1c631a36308e9660e4389f0c3dfb3be957044d3ac92d446
+    ports:
+      - '127.0.0.1:${TLS_TEST_PORT:?Set TLS_TEST_PORT}:443'
+    environment:
+      SITE_ADDRESS: https://localhost:443
+      DASHBOARD_USER: ${DASHBOARD_USER:-owner}
+      DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:?Set DASHBOARD_PASSWORD_HASH}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?Set INTERNAL_API_TOKEN}
+    volumes:
+      - type: bind
+        source: ${TLS_TEST_CADDYFILE:?Set TLS_TEST_CADDYFILE}
+        target: /etc/caddy/Caddyfile
+        read_only: true
+    tmpfs: [/data, /config]
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: {max-size: '1m', max-file: '1'}
+networks:
+  default:
+    external: true
+    name: ${ARCHIVE_NETWORK:-archive-desk_default}

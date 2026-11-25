@@ -1,0 +1,28 @@
+x-public-origin: &public-origin
+  APP_ORIGIN: https://${ARCHIVE_DOMAIN:?Set ARCHIVE_DOMAIN}
+  DM_CAPTION_AUTOPOST: 'false'
+  DM_REEL_AUTOPOST: 'false'
+
+services:
+  api:
+    environment: *public-origin
+  worker:
+    environment: *public-origin
+  proxy:
+    command: [caddy, run, --config, /etc/caddy/Caddyfile.production, --adapter, caddyfile]
+    ports: !override
+      - '0.0.0.0:80:80'
+      - '0.0.0.0:443:443'
+    environment:
+      SITE_ADDRESS: ${ARCHIVE_DOMAIN:?Set ARCHIVE_DOMAIN}
+    volumes:
+      - ./infra/Caddyfile.production:/etc/caddy/Caddyfile.production:ro
+  ollama:
+    environment:
+      OLLAMA_MAX_LOADED_MODELS: '1'
+    healthcheck:
+      test: [CMD, ollama, list]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s

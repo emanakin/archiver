@@ -1,0 +1,13 @@
+services:
+  tests:
+    build:
+      context: ./services/backend
+      dockerfile: Dockerfile.test
+    environment:
+      TEST_POSTGRES_URL: postgresql+psycopg://archive:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/archive
+      ARCHIVE_SCRIPTS_DIR: /validation
+    volumes:
+      - ./scripts:/validation:ro
+    depends_on:
+      db: {condition: service_healthy}
+    profiles: [test]

@@ -1,0 +1,5 @@
+import Caddyfile
+
+http://{$SITE_ADDRESS} {
+	redir https://{$SITE_ADDRESS}{uri} 308
+}
