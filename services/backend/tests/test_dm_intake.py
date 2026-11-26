@@ -376,6 +376,62 @@ def test_failed_share_receipt_links_to_public_queue(system, monkeypatch):
     )
 
 
+def test_replacement_music_updates_only_the_new_draft_before_captioning(system, monkeypatch):
+    from types import SimpleNamespace
+
+    _, db, account, _ = system
+    account.instagram_id = "22"
+    inbox = DmInbox(account_id=account.id, sender_id="22", sender_username=account.username)
+    original = ContentDraft(
+        account_id=account.id, asset_id="fixture", kind="feed_photo", status="published"
+    )
+    replacement = ContentDraft(account_id=account.id, asset_id="fixture", kind="feed_photo")
+    db.add_all([inbox, original, replacement])
+    db.flush()
+    submission = DmSubmission(
+        account_id=account.id,
+        sender_id="22",
+        thread_id="12",
+        message_id="34",
+        draft_id=original.id,
+    )
+    db.add(submission)
+    db.flush()
+    job = Job(
+        account_id=account.id,
+        kind="dm_replacement_music",
+        state="running",
+        claim_owner="owner",
+        idempotency_key="prepare-replacement",
+        payload={
+            "sender_id": "22",
+            "inbox_version": inbox.version,
+            "replacement_from": original.id,
+            "replacement_source_submission_id": submission.id,
+            "replacement_draft_id": replacement.id,
+            "replacement_revision": replacement.revision,
+            "replacement_caption_source": "original caption context",
+        },
+    )
+    db.add(job)
+    db.flush()
+    engine, job_id = db.get_bind(), job.id
+    lane = SimpleNamespace(account_id=account.id, owner="owner", assert_owned=lambda: None)
+    db.commit()
+    monkeypatch.setattr(dm_intake, "music_for_share", lambda *args: ("37", None, None, []))
+
+    dm_intake.perform(engine, lane, job_id, None, None, now)
+
+    db.refresh(original)
+    db.refresh(replacement)
+    assert original.status == "published" and original.music_canonical_id is None
+    assert replacement.music_canonical_id == "37" and replacement.revision == 2
+    assert replacement.caption_review["state"] == "processing"
+    caption_job = db.get(Job, replacement.caption_review["job_id"])
+    assert caption_job.payload["revision"] == 2
+    assert caption_job.payload["source_caption"] == "original caption context"
+
+
 def test_playlist_match_requires_one_exact_unused_catalog_track():
     def track(id, title, artist):
         return {

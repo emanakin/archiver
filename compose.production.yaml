@@ -19,7 +19,7 @@ services:
       - ./infra/Caddyfile.production:/etc/caddy/Caddyfile.production:ro
   ollama:
     environment:
-      OLLAMA_MAX_LOADED_MODELS: '1'
+      OLLAMA_MAX_LOADED_MODELS: '2'
     healthcheck:
       test: [CMD, ollama, list]
       interval: 30s

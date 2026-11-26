@@ -201,16 +201,18 @@ def transcribe(path, directory, config):
 
 def visual_sample(images):
     if len(images) == 1:
-        return images[0]
+        return image_sample(base64.b64decode(images[0]), edge=480)
     # Ollama allocates a full image token budget per attachment. Keep every
     # sampled frame in one image and run OCR on the individual frames.
-    tile_size = 340
-    with Image.new("RGB", (3 * tile_size, 2 * tile_size), (24, 24, 24)) as grid:
+    tile_size = 160
+    columns = min(3, len(images))
+    rows = (len(images) + columns - 1) // columns
+    with Image.new("RGB", (columns * tile_size, rows * tile_size), (24, 24, 24)) as grid:
         for index, sample in enumerate(images):
             with Image.open(io.BytesIO(base64.b64decode(sample))) as original:
                 tile = ImageOps.contain(original.convert("RGB"), (tile_size - 8, tile_size - 8))
-                left = index % 3 * tile_size + (tile_size - tile.width) // 2
-                top = index // 3 * tile_size + (tile_size - tile.height) // 2
+                left = index % columns * tile_size + (tile_size - tile.width) // 2
+                top = index // columns * tile_size + (tile_size - tile.height) // 2
                 grid.paste(tile, (left, top))
         with io.BytesIO() as output:
             grid.save(output, format="JPEG", quality=90)
@@ -263,7 +265,7 @@ def media_evidence(draft_kind, assets, config):
         config.dm_caption_vision_model or DEFAULT_VISION,
         [{"role": "user", "content": EVIDENCE_PROMPT, "images": [visual_sample(images)]}],
         180,
-        num_predict=48,
+        num_predict=36,
     )
     return observation or "", printed, speech, audio_unread
 
@@ -274,11 +276,11 @@ def compose_editorial(model, source, observation, printed, speech, history, voic
         return None, "Insufficient source or media context"
     media_facts = " ".join(known)
     facts = {
-        "original_caption": source[:2200],
-        "visual_notes": observation[:1200],
+        "original_caption": source[:1500],
+        "visual_notes": observation[:800],
         "printed_text": printed,
         "speech_transcript": speech,
-        "owner_voice": relevant_examples(voice, media_facts, 4),
+        "owner_voice": relevant_examples(voice, media_facts, 3),
         "outside_style_when_owner_examples_are_missing": relevant_examples(
             references, media_facts, 2
         )
@@ -298,8 +300,8 @@ def compose_editorial(model, source, observation, printed, speech, history, voic
             {"role": "system", "content": WRITER_PROMPT},
             {"role": "user", "content": json.dumps({**facts, "angles": angles})},
         ],
-        75,
-        num_predict=92,
+        120,
+        num_predict=64,
     )
     if writer_error in {"timeout", "service_error"}:
         return None, "The local caption writer did not respond in time"
@@ -324,7 +326,7 @@ def compose_editorial(model, source, observation, printed, speech, history, voic
             {"role": "system", "content": REVIEW_PROMPT},
             {"role": "user", "content": json.dumps({**facts, "candidates": numbered})},
         ],
-        40,
+        60,
         num_predict=8,
     )
     if editor_error in {"timeout", "service_error"}:

@@ -5,6 +5,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -304,7 +305,7 @@ def chat(model, messages, timeout, *, structured=False, num_predict=None):
             "num_predict": num_predict or (96 if structured else 36),
             "num_ctx": 4096,
             "temperature": 0.25,
-            "num_thread": 5,
+            "num_thread": min(os.cpu_count() or 1, 5),
         },
         "messages": messages,
     }

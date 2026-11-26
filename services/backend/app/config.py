@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     dm_spotify_refresh_minutes: int = Field(default=240, ge=60)
     dm_default_account_id: str = ""
     dm_default_from: AwareDatetime | None = None
+    dm_auto_music: bool = False
     dm_caption_model: str = ""
     dm_caption_vision_model: str = ""
     dm_caption_sources: str = ""

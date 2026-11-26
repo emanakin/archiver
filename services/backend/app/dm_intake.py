@@ -46,7 +46,7 @@ from .schemas import JobResponse, ORMResponse, Page, Strict
 from .spotify_playlist import match_track, music_library, playlist_candidates, spotify_query
 
 router = APIRouter(prefix="/api/v1")
-DM_KINDS = {"dm_poll", "dm_import", "dm_audio"}
+DM_KINDS = {"dm_poll", "dm_import", "dm_audio", "dm_replacement_music"}
 DM_REQUEST_RESERVATION = 2
 
 
@@ -616,6 +616,74 @@ def music_for_share(engine, lane, adapter, guard, source_music, caption, context
     return None, track, selection, checks
 
 
+def prepare_replacement_music(engine, lane, job_id, adapter, guard, clock):
+    config = settings()
+    with Session(engine) as db:
+        job = db.get(Job, job_id)
+        inbox = enabled_inbox(db, job)
+        original = db.get(ContentDraft, job.payload["replacement_from"])
+        target = db.get(ContentDraft, job.payload["replacement_draft_id"])
+        submission = db.get(DmSubmission, job.payload["replacement_source_submission_id"])
+        if (
+            not original
+            or not target
+            or not submission
+            or original.account_id != lane.account_id
+            or target.account_id != lane.account_id
+            or submission.account_id != lane.account_id
+            or submission.sender_id != inbox.sender_id
+            or submission.draft_id != original.id
+            or original.status != "published"
+            or target.status != "draft"
+            or target.discarded_at
+            or target.kind != original.kind
+            or target.kind not in {"feed_photo", "feed_carousel"}
+            or target.asset_id != original.asset_id
+            or target.photo_assets != original.photo_assets
+            or target.revision != job.payload["replacement_revision"]
+        ):
+            raise OperationBlocked("The replacement draft no longer matches the original post")
+        playlists = [p.playlist_id for p in music_library(db, lane.account_id, config) if p.enabled]
+        draft_id, revision, caption, source_music = (
+            target.id,
+            target.revision,
+            target.caption,
+            target.source_music,
+        )
+    canonical, native, selection, checks = music_for_share(
+        engine, lane, adapter, guard, source_music, caption, caption, True, playlists
+    )
+    with Session(engine) as db, db.begin():
+        job = claim(db, lane, job_id)
+        enabled_inbox(db, job)
+        target = db.scalar(
+            select(ContentDraft).where(ContentDraft.id == draft_id).with_for_update()
+        )
+        if (
+            not target
+            or target.status != "draft"
+            or target.discarded_at
+            or target.revision != revision
+        ):
+            raise OperationBlocked("The replacement changed while checking music")
+        job.payload = {**job.payload, "music_checks": checks}
+        if canonical or native:
+            target.music_canonical_id, target.playlist_music = canonical, native
+            if selection:
+                db.add(
+                    PlaylistSelection(account_id=lane.account_id, draft_id=draft_id, **selection)
+                )
+            mark_used(db, lane.account_id, native, clock())
+            target.revision += 1
+            target.updated_at = clock()
+            if not target.caption.strip():
+                from .caption_pipeline import enqueue_caption
+
+                enqueue_caption(db, target, job.payload["replacement_caption_source"])
+    if not (canonical or native):
+        raise OperationBlocked("No verified feed music matched this replacement")
+
+
 def perform(engine, lane, job_id, adapter, guard, clock):
     config = settings()
     with Session(engine) as db:
@@ -623,7 +691,7 @@ def perform(engine, lane, job_id, adapter, guard, clock):
         inbox = enabled_inbox(db, job)
         account = db.get(Account, lane.account_id)
         kind = job.kind
-        if kind == "dm_audio":
+        if kind in {"dm_audio", "dm_replacement_music"}:
             scope = None
         elif kind == "dm_poll":
             if job.payload.get("page_saved") is True:
@@ -653,7 +721,14 @@ def perform(engine, lane, job_id, adapter, guard, clock):
                 p.playlist_id for p in music_library(db, account.id, config) if p.enabled
             ]
             music_command = commands.get("music")
-            auto_music = new_defaults and not commands.get("story") and not music_command
+            auto_music = (
+                (
+                    new_defaults
+                    or (config.dm_auto_music and config.dm_default_account_id == account.id)
+                )
+                and not commands.get("story")
+                and not music_command
+            )
             wants_playlist = not commands.get("story") and (
                 music_command["value"] == "playlist"
                 if music_command
@@ -667,6 +742,8 @@ def perform(engine, lane, job_id, adapter, guard, clock):
             )
     if kind == "dm_audio":
         return verify_audio(engine, lane, job_id, adapter, guard)
+    if kind == "dm_replacement_music":
+        return prepare_replacement_music(engine, lane, job_id, adapter, guard, clock)
     if kind == "dm_poll":
         thread_id, next_cursor, messages = read_page(adapter.client, *scope)
         with Session(engine) as db, db.begin():

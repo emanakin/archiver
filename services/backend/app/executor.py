@@ -102,8 +102,10 @@ class RequestGuard:
             job = db.scalar(select(Job).where(Job.id == self.job_id).with_for_update())
             if job.claim_owner != self.lane.owner or job.state != "running":
                 raise OwnershipLost("The photo import no longer belongs to this executor")
-            if job.kind != "dm_import":
-                raise OperationBlocked("Only an approved DM import can extend its request budget")
+            if job.kind not in {"dm_import", "dm_replacement_music"}:
+                raise OperationBlocked(
+                    "Only an approved DM media job can extend its request budget"
+                )
             account_check(account, job, at)
             enabled_inbox(db, job)
             budgets.reserve(
