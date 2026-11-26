@@ -10,7 +10,7 @@ from app.db import engine
 from app.models import Account, AuditEvent, ContentDraft, DmInbox, DmSubmission, Job
 
 
-def prepare(db, account, original_id):
+def prepare(db, account, original_id, retry_unmatched=False):
     original = db.get(ContentDraft, original_id)
     if (
         not original
@@ -34,8 +34,35 @@ def prepare(db, account, original_id):
     previous = db.scalar(
         select(Job).where(Job.account_id == account.id, Job.idempotency_key == key)
     )
-    if previous:
+    if previous and not retry_unmatched:
         return previous.payload["replacement_draft_id"], previous.id
+    music = ((submission.draft_commands or {}).get("commands") or {}).get("music")
+    if music and music.get("value") != "playlist":
+        raise ValueError("This share requested a specific soundtrack choice. Review it first.")
+    if retry_unmatched:
+        if not previous or previous.state != "blocked" or not previous.payload.get("music_checks"):
+            raise ValueError("Expected a prior catalog check that did not find a usable match")
+        draft = db.get(ContentDraft, previous.payload["replacement_draft_id"])
+        if not draft or draft.status != "draft" or draft.playlist_music or draft.music_canonical_id:
+            raise ValueError("The replacement already has music or has left Drafts")
+        retry_key = key + ":retry"
+        if retry := db.scalar(
+            select(Job).where(Job.account_id == account.id, Job.idempotency_key == retry_key)
+        ):
+            return draft.id, retry.id
+        payload = {
+            name: value for name, value in previous.payload.items() if name != "music_checks"
+        }
+        payload.update(inbox_version=inbox.version, replacement_revision=draft.revision)
+        retry = Job(
+            account_id=account.id,
+            kind="dm_replacement_music",
+            idempotency_key=retry_key,
+            payload=payload,
+        )
+        db.add(retry)
+        db.flush()
+        return draft.id, retry.id
 
     caption_job_id = (original.caption_review or {}).get("job_id")
     caption_job = db.get(Job, caption_job_id) if caption_job_id else None
@@ -83,6 +110,7 @@ def prepare(db, account, original_id):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--retry-unmatched", action="store_true")
     parser.add_argument("original_id", nargs="+")
     args = parser.parse_args()
     with Session(engine) as db, db.begin():
@@ -91,7 +119,10 @@ def main():
         )
         if not account or account.paused or account.restricted or not account.read_only_verified_at:
             raise SystemExit("The archive account must be verified and active")
-        results = [(original, *prepare(db, account, original)) for original in args.original_id]
+        results = [
+            (original, *prepare(db, account, original, args.retry_unmatched))
+            for original in args.original_id
+        ]
     for original, draft, job in results:
         print(original, draft, job)
 
