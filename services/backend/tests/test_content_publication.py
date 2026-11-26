@@ -65,7 +65,11 @@ def test_archive_requires_exact_linked_replacement_and_playback(system, monkeypa
         idempotency_key="replacement",
         kind="publish_photo",
         state="succeeded",
-        payload={"snapshot": content.snapshot(replacement)},
+        payload={
+            "snapshot": content.snapshot(replacement),
+            "draft_id": replacement.id,
+            "media_id": replacement.media_id,
+        },
     )
     db.add(publish)
     db.flush()
@@ -86,7 +90,16 @@ def test_archive_requires_exact_linked_replacement_and_playback(system, monkeypa
     result = client.post(route, json=body)
     assert result.status_code == 202
     assert result.json()["kind"] == "archive_post"
-    assert db.get(Job, result.json()["id"]).payload["media_id"] == "123_999"
+    archive = db.get(Job, result.json()["id"])
+    assert archive.payload["media_id"] == "123_999"
+    archive.state, archive.error = "failed", "SOURCE_INACCESSIBLE"
+    db.commit()
+    reconciliation = client.post(
+        f"/api/v1/content-drafts/{original.id}/reconcile", json={"job_id": archive.id}
+    )
+    assert reconciliation.status_code == 202
+    assert reconciliation.json()["kind"] == "reconcile_content"
+    assert db.get(Job, reconciliation.json()["id"]).payload["media_ref"] == "123_999"
 
 
 @pytest.mark.skipif(not os.getenv("TEST_POSTGRES_URL"), reason="Requires PostgreSQL account lane")

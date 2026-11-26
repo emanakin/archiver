@@ -407,6 +407,10 @@ def verified_replacement(db, original, replacement_id):
         not publication
         or publication.account_id != original.account_id
         or publication.state != "succeeded"
+        or publication.kind
+        != f"publish_{'carousel' if replacement.kind == 'feed_carousel' else 'photo'}"
+        or publication.payload.get("draft_id") != replacement.id
+        or publication.payload.get("media_id") != replacement.media_id
     ):
         return False
     saved = publication.payload.get("snapshot", {})
@@ -477,6 +481,12 @@ def list_operations(account_id: str, db: Session = Depends(get_db)):
     }
 
 
+def awaiting_reconciliation(job):
+    return (job.state in {"unknown", "blocked"} and job.dispatch_started_at) or (
+        job.kind == "archive_post" and job.state == "failed" and job.error == "SOURCE_INACCESSIBLE"
+    )
+
+
 @router.post("/content-drafts/{draft_id}/reconcile", status_code=202, response_model=JobResponse)
 def request_reconciliation(draft_id: str, body: ReconcileApproval, db: Session = Depends(get_db)):
     account, draft = locked_draft(db, draft_id)
@@ -486,8 +496,7 @@ def request_reconciliation(draft_id: str, body: ReconcileApproval, db: Session =
         parent.account_id != account.id
         or parent.kind not in WRITE_KINDS
         or parent.payload.get("draft_id") != draft.id
-        or parent.state not in {"unknown", "blocked"}
-        or not parent.dispatch_started_at
+        or not awaiting_reconciliation(parent)
     ):
         raise HTTPException(409, "This action is not awaiting outcome reconciliation")
     media_ref = parent.payload.get("media_id") or draft.media_id or body.media_ref
@@ -823,7 +832,7 @@ def perform(engine, lane, job_id, adapter, guard, clock):
                 not parent
                 or parent.account_id != lane.account_id
                 or parent.payload.get("draft_id") != draft.id
-                or parent.state not in {"unknown", "blocked"}
+                or not awaiting_reconciliation(parent)
             ):
                 raise OperationBlocked("Original media action is no longer awaiting reconciliation")
             if parent.kind in REMOVAL_KINDS - {"archive_post"}:
@@ -860,7 +869,9 @@ def perform(engine, lane, job_id, adapter, guard, clock):
             if summary:
                 summary.outcome, summary.detail = (
                     "succeeded",
-                    "Owner-linked media verified without another write",
+                    "Owner-linked archive verified without another write"
+                    if parent.kind == "archive_post"
+                    else "Owner-linked media verified without another write",
                 )
             attempt = db.scalar(
                 select(ActionAttempt)
