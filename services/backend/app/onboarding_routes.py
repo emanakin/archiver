@@ -190,7 +190,10 @@ def begin_connection(body: ConnectInput, db: Session = Depends(get_db)):
         .with_for_update()
     )
     if account is None:
+        workspace = db.info.get("workspace_id")
         account = Account(username=body.username, mode="live", paused=True)
+        if workspace:
+            account.workspace_id = workspace
         db.add(account)
         db.flush()
         db.add(

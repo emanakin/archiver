@@ -111,6 +111,9 @@ class SettingsValues(Strict):
         return self
 
     music_library: list[MusicPlaylist] | None = Field(default=None, max_length=30)
+    shuffle_dm_music: bool | None = None
+    dm_self_receipts: bool | None = None
+    caption_sources: str | None = Field(default=None, max_length=2048)
 
     @field_validator("music_library")
     @classmethod

@@ -1,6 +1,6 @@
 # Archive Desk
 
-Archive Desk is a single-owner Instagram archive dashboard with a DM-driven intake, review and publication workflow.
+Archive Desk is an Instagram archive dashboard with a DM-driven intake, review and publication workflow.
 
 ## Start here
 
@@ -16,7 +16,7 @@ Archive Desk is a single-owner Instagram archive dashboard with a DM-driven inta
 - Seven-screen Next.js dashboard with persistent sources, candidates, queue, ledger, activity and versioned settings. Mobile and desktop layouts use self-hosted fonts.
 - FastAPI typed responses, OpenAPI-generated frontend types, source normalization, server pagination/filters, canonical request receipts and business deduplication.
 - PostgreSQL migrations, source provenance, worker health and encrypted browser-to-worker onboarding.
-- Caddy single-owner authentication, same-origin API routing and loopback-only exposure by default.
+- Caddy owner authentication by default, with an optional Google sign-in overlay for isolated workspaces.
 - Durable account locks, committed claims, attempt journal, request/action budgets and unknown-outcome reconciliation.
 - Opt-in guarded Instagram connection, read-only collection, reviewed follows and managed cleanup preserving follow-backs.
 - Opt-in daily source collection, operating status, pinned base images and checksum-verified backup/restore tools.

@@ -22,6 +22,7 @@ import {
   Users,
 } from "lucide-react";
 import { useArchive } from "../lib/archive-context";
+import { useIdentity, WorkspaceSignOut } from "../lib/identity";
 import { routes, useRouter } from "../lib/router";
 import type { FixtureState } from "../lib/types";
 import { Badge, Button, Card, Modal, Select } from "./ui";
@@ -63,6 +64,7 @@ function Brand({ small = false }: { small?: boolean }) {
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname, navigate } = useRouter();
   const { data, service, perform } = useArchive();
+  const identity = useIdentity();
   const [more, setMore] = useState(false);
   const [guide, setGuide] = useState(false);
   const [tools, setTools] = useState(false);
@@ -355,6 +357,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <p>
             Add, connect or switch Instagram accounts in Settings. Each account keeps its own sources, history and preferences.
           </p>
+          {identity?.email && <p>Signed in as {identity.email}</p>}
           <Button
             variant="outline"
             onClick={() => {
@@ -365,6 +368,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             Account settings
             <Settings2 size={15} />
           </Button>
+          {identity?.auth_mode === "google" && <WorkspaceSignOut />}
         </div>
       </Modal>
     </div>

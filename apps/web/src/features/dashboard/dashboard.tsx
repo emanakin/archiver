@@ -17,6 +17,7 @@ import { PAGE_SIZE } from "./lib/service";
 import { AccountConnection, CircularLoader } from "./components/account-connection";
 import { Button, Card } from "./components/ui";
 import { PageHeader } from "./components/shared";
+import { IdentityGate } from "./lib/identity";
 
 function Application() {
   const { pathname, search, navigate } = useRouter();
@@ -42,7 +43,7 @@ function Application() {
   </AppShell>;
 }
 export function Dashboard() {
-  return <Suspense fallback={<CircularLoader full label="Opening Archive Desk" />}><ArchiveProviderRoot><Application /></ArchiveProviderRoot></Suspense>;
+  return <Suspense fallback={<CircularLoader full label="Opening Archive Desk" />}><IdentityGate><ArchiveProviderRoot><Application /></ArchiveProviderRoot></IdentityGate></Suspense>;
 }
 
 function PausedPage({ title, description, action }: { title: string; description: string; action?: () => void }) {

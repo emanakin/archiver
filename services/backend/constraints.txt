@@ -39,3 +39,8 @@ jmespath==1.1.0
 python-dateutil==2.9.0.post0
 six==1.17.0
 urllib3==2.8.0
+google-auth==2.63.1
+pyasn1==0.6.5
+pyasn1-modules==0.4.2
+requests==2.34.2
+charset-normalizer==3.5.2

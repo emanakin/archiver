@@ -22,6 +22,7 @@ from .dm_reader import NoRedirect
 from .execution_errors import Inaccessible, TransientRead
 from .models import Account, AccountSettings, PlaylistSelection, PlaylistSync, PlaylistTrack, now
 from .schemas import MusicPlaylist, SettingsPatch, SettingsValues, Strict
+from .workspace_preferences import preferences
 
 router = APIRouter(prefix="/api/v1")
 TRACK_URI = re.compile(r"spotify:track:([A-Za-z0-9]{22})")
@@ -239,7 +240,7 @@ def music_library(db, account_id, config=None):
     entries = (saved.values or {}).get("music_library") if saved else None
     if entries is not None:
         return [MusicPlaylist.model_validate(entry) for entry in entries]
-    default = configured_playlist(account_id, config)
+    default = configured_playlist(account_id, preferences(db, account_id, config or settings()))
     return [MusicPlaylist(playlist_id=default, label="Original playlist")] if default else []
 
 
@@ -298,9 +299,11 @@ def playlist_status(account_id: str, db: Session = Depends(get_db)):
     )
 
 
-def sync_playlist(engine, account_id, playlist_id, interval, *, manual=False, clock=now):
+def sync_playlist(
+    engine, account_id, playlist_id, interval, *, manual=False, clock=now, workspace_id=None
+):
     at = clock()
-    with Session(engine) as db, db.begin():
+    with Session(engine, info={"workspace_id": workspace_id}) as db, db.begin():
         account = db.scalar(select(Account).where(Account.id == account_id).with_for_update())
         if not account:
             return False
@@ -327,9 +330,11 @@ def sync_playlist(engine, account_id, playlist_id, interval, *, manual=False, cl
         tracks, failure = None, error
     else:
         failure = None
-    with Session(engine) as db, db.begin():
+    with Session(engine, info={"workspace_id": workspace_id}) as db, db.begin():
         db.scalar(select(Account).where(Account.id == account_id).with_for_update())
         sync = db.get(PlaylistSync, playlist_id)
+        if not sync:
+            return False
         checked = sync.checked_at if sync.checked_at.tzinfo else sync.checked_at.replace(tzinfo=UTC)
         if checked != at:
             return False
@@ -372,7 +377,14 @@ def refresh_playlist(
         raise HTTPException(404, "No Spotify playlist is configured for this account")
     required(db, Account, account_id)
     db.rollback()
-    if not sync_playlist(db.get_bind(), account_id, playlist_id, timedelta(), manual=True):
+    if not sync_playlist(
+        db.get_bind(),
+        account_id,
+        playlist_id,
+        timedelta(),
+        manual=True,
+        workspace_id=db.info.get("workspace_id"),
+    ):
         raise HTTPException(409, "The Spotify playlist is already refreshing")
     status = playlist_status(account_id, db)
     if status is None:

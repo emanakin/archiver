@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, aliased
+from starlette.concurrency import run_in_threadpool
 
 from .caption_pipeline import router as caption_router
 from .config import settings
@@ -35,9 +36,11 @@ from .dashboard import (
     row,
     source_view,
 )
-from .db import get_db
+from .db import SessionLocal, get_db
 from .dm_intake import poll_jobs, sender_inbox
 from .dm_intake import router as dm_router
+from .google_signin import SESSION, current_principal, validate_runtime
+from .google_signin import router as auth_router
 from .insight_watches import router as watches_router
 from .insights import router as insights_router
 from .models import (
@@ -105,6 +108,7 @@ app.include_router(caption_router)
 app.include_router(playlist_router)
 app.include_router(saved_audio_router)
 app.include_router(source_photo_router)
+app.include_router(auth_router)
 
 
 def error_response(request, status, code, message, details=None):
@@ -120,24 +124,36 @@ def error_response(request, status, code, message, details=None):
             },
         },
         status_code=status,
+        headers={"Cache-Control": "no-store"},
     )
 
 
 @app.middleware("http")
 async def authentication(request: Request, call_next):
     request.state.request_id = str(uuid.uuid4())
+    cfg = settings()
     if request.url.path.startswith("/api/"):
         if not secrets.compare_digest(
-            request.headers.get("x-internal-token", ""), settings().internal_api_token
+            request.headers.get("x-internal-token", "").encode(), cfg.internal_api_token.encode()
         ):
             return error_response(request, 401, "UNAUTHORIZED", "Unauthorized")
+        if cfg.auth_mode == "google":
+            try:
+                principal = await run_in_threadpool(current_principal, request.cookies.get(SESSION))
+            except (RuntimeError, SQLAlchemyError):
+                return error_response(request, 503, "UNAVAILABLE", "Sign-in is temporarily unavailable")
+            if principal is None:
+                return error_response(request, 401, "UNAUTHORIZED", "Sign in with Google")
+            request.state.principal = principal
         if (
             request.method not in {"GET", "HEAD", "OPTIONS"}
-            and request.headers.get("origin") != settings().app_origin
+            and request.headers.get("origin") != cfg.app_origin
         ):
             return error_response(request, 403, "ORIGIN_REJECTED", "Origin rejected")
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
+    if request.url.path.startswith(("/api/", "/auth/")):
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -161,6 +177,13 @@ async def validation_error(request, exc):
     return error_response(request, 422, "VALIDATION_ERROR", "Check the submitted fields", details)
 
 
+@app.exception_handler(IntegrityError)
+async def integrity_failure(request, exc):
+    if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) == "workspace_queue_limit":
+        return error_response(request, 429, "QUEUE_FULL", "Wait for your workspace queue to finish")
+    return error_response(request, 409, "STATE_CONFLICT", "This change conflicts with saved data")
+
+
 def page(items, limit, offset):
     return {
         "items": items[offset : offset + limit],
@@ -176,13 +199,16 @@ def live():
 
 
 @app.get("/health/ready")
-def ready(db: Session = Depends(get_db)):
+def ready():
     try:
-        db.execute(text("SELECT 1"))
-        current = MigrationContext.configure(db.connection()).get_current_revision()
-        if current != expected_schema():
-            raise HTTPException(503, "Database migrations are required")
-    except SQLAlchemyError:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+            current = MigrationContext.configure(db.connection()).get_current_revision()
+            if current != expected_schema():
+                raise HTTPException(503, "Database migrations are required")
+            if settings().auth_mode == "google":
+                validate_runtime(db.connection())
+    except (RuntimeError, ValueError, KeyError, OSError, SQLAlchemyError):
         raise HTTPException(503, "Database unavailable") from None
     return {"status": "ready", "mode": settings().adapter_mode, "schema_revision": current}
 
@@ -789,6 +815,9 @@ def patch_settings(account_id: str, body: SettingsPatch, db: Session = Depends(g
         values["music_library"] = (stored.values or {}).get("music_library")
     if "ranked_follow_mode" not in body.model_fields_set:
         values["ranked_follow_mode"] = (stored.values or {}).get("ranked_follow_mode", "review")
+    for key in ("shuffle_dm_music", "dm_self_receipts", "caption_sources"):
+        if key not in body.model_fields_set:
+            values[key] = (stored.values or {}).get(key)
     from .ranked_follows import replan_queued_follows
 
     replan_queued_follows(db, account_id, stored.values or {}, values, now())

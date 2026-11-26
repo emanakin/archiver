@@ -64,7 +64,7 @@ export function QueuePage() {
       >
         Retry read
       </Button>
-    ) : ["publish_photo", "publish_story", "publish_carousel", "publish_reel", "edit_caption", "delete_story", "delete_post", "reconcile_content"].includes(job.kind) && ["unknown", "blocked", "failed"].includes(job.state) ? (
+    ) : ["publish_photo", "publish_story", "publish_carousel", "publish_reel", "edit_caption", "delete_story", "delete_post", "archive_post", "reconcile_content"].includes(job.kind) && ["unknown", "blocked", "failed"].includes(job.state) ? (
       <Button variant="outline" size="sm" onClick={() => navigate("/content")}>Review in Content</Button>
     ) : job.state === "unknown" || (job.state === "blocked" && job.error === "OUTCOME_UNKNOWN") ? (
       <Button

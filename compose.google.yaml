@@ -1,0 +1,26 @@
+# Apply after compose.production.yaml only during the Google sign-in cutover.
+services:
+  proxy:
+    command: [caddy, run, --config, /etc/caddy/Caddyfile.google, --adapter, caddyfile]
+    volumes:
+      - ./infra/Caddyfile.google:/etc/caddy/Caddyfile.google:ro
+  api:
+    environment:
+      AUTH_MODE: google
+      DATABASE_URL: ${ARCHIVE_API_DATABASE_URL:?Set ARCHIVE_API_DATABASE_URL}
+      AUTH_DATABASE_URL: ${ARCHIVE_AUTH_DATABASE_URL:?Set ARCHIVE_AUTH_DATABASE_URL}
+      GOOGLE_OAUTH_CLIENT_FILE: /run/secrets/google_oauth_client
+      BOOTSTRAP_OWNER_EMAIL: ${ARCHIVE_OWNER_EMAIL:?Set ARCHIVE_OWNER_EMAIL}
+      SIGNUP_OPEN: ${ARCHIVE_SIGNUP_OPEN:-false}
+      SIGNUP_TEST_EMAILS: ${ARCHIVE_SIGNUP_TEST_EMAILS:-}
+    volumes:
+      - type: bind
+        source: ./secrets/google_oauth.json
+        target: /run/secrets/google_oauth_client
+        read_only: true
+        bind:
+          create_host_path: false
+  worker:
+    environment:
+      AUTH_MODE: google
+      DATABASE_URL: ${ARCHIVE_WORKER_DATABASE_URL:?Set ARCHIVE_WORKER_DATABASE_URL}

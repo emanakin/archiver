@@ -194,8 +194,8 @@ export function JobDetail({ jobId, onClose }: { jobId: string | null; onClose: (
                 Retry read
               </Button>
             )}
-            {["publish_photo", "publish_story", "publish_carousel", "publish_reel", "edit_caption", "delete_story", "delete_post", "reconcile_content"].includes(job.kind) && ["unknown", "blocked", "failed"].includes(job.state) && <Button variant="outline" onClick={() => { onClose(); navigate("/content"); }}>Review outcome in Content</Button>}
-            {!["publish_photo", "publish_story", "publish_carousel", "publish_reel", "edit_caption", "delete_story", "delete_post", "reconcile_content"].includes(job.kind) && (job.state === "unknown" || (job.state === "blocked" && job.error === "OUTCOME_UNKNOWN")) && (
+            {["publish_photo", "publish_story", "publish_carousel", "publish_reel", "edit_caption", "delete_story", "delete_post", "archive_post", "reconcile_content"].includes(job.kind) && ["unknown", "blocked", "failed"].includes(job.state) && <Button variant="outline" onClick={() => { onClose(); navigate("/content"); }}>Review outcome in Content</Button>}
+            {!["publish_photo", "publish_story", "publish_carousel", "publish_reel", "edit_caption", "delete_story", "delete_post", "archive_post", "reconcile_content"].includes(job.kind) && (job.state === "unknown" || (job.state === "blocked" && job.error === "OUTCOME_UNKNOWN")) && (
               <Button
                 disabled={!job.dispatch_started_at || !data.connection?.can_collect}
                 onClick={() => {

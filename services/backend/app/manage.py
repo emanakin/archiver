@@ -9,7 +9,7 @@ from getpass import getpass
 from pathlib import Path
 
 from cryptography.fernet import Fernet
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from . import budgets
@@ -198,13 +198,24 @@ def connect_account(
                 existing_id = db.get(Account, account_id).instagram_id
             if existing_id and existing_id != instagram_id:
                 raise SessionRequired("Connected identity does not match the provisioned account")
-            revision = store.save(account_id, client.get_settings())
             with Session(engine) as db, db.begin():
                 account = db.scalar(
                     select(Account).where(Account.id == account_id).with_for_update()
                 )
+                if engine.dialect.name == "postgresql":
+                    db.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtextextended(:identity, 0))"),
+                        {"identity": f"archive-instagram:{instagram_id}"},
+                    )
+                if db.scalar(
+                    select(Account.id).where(
+                        Account.instagram_id == instagram_id, Account.id != account.id
+                    )
+                ):
+                    raise OperationBlocked("This Instagram account is already connected")
                 if on_verified:
                     on_verified(db)
+                revision = store.save(account_id, client.get_settings())
                 metadata = db.get(AccountSession, account_id)
                 if metadata is None:
                     metadata = AccountSession(

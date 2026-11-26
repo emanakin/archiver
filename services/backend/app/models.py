@@ -4,6 +4,9 @@ from datetime import UTC, datetime
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+OWNER_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001"
+SYSTEM_WORKSPACE_ID = "00000000-0000-4000-8000-000000000002"
+
 
 def now():
     return datetime.now(UTC)
@@ -17,9 +20,44 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    google_subject: Mapped[str] = mapped_column(String(255), unique=True)
+    email: Mapped[str] = mapped_column(String(320))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class WebSession(Base):
+    __tablename__ = "web_sessions"
+    digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class GoogleLoginFlow(Base):
+    __tablename__ = "google_login_flows"
+    digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    browser_digest: Mapped[str] = mapped_column(String(64))
+    verifier: Mapped[str] = mapped_column(String(128))
+    nonce: Mapped[str] = mapped_column(String(128))
+    return_to: Mapped[str] = mapped_column(String(512))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class Account(Base):
     __tablename__ = "accounts"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id"), index=True, server_default=OWNER_WORKSPACE_ID
+    )
     username: Mapped[str] = mapped_column(String(64))
     instagram_id: Mapped[str | None] = mapped_column(String(64), unique=True)
     paused: Mapped[bool] = mapped_column(Boolean, default=True)

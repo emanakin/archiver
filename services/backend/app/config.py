@@ -9,6 +9,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     database_url: str = "sqlite:///./development.db"
+    auth_database_url: str = ""
+    auth_mode: Literal["legacy", "google"] = "legacy"
+    google_oauth_client_file: str = ""
+    bootstrap_owner_email: str = ""
+    signup_open: bool = False
+    signup_test_emails: str = ""
     internal_api_token: str = Field(min_length=24)
     app_origin: str = "http://localhost:8080"
     adapter_mode: Literal["mock", "read_only", "live"] = "read_only"

@@ -35,6 +35,7 @@ from .dashboard import required
 from .db import get_db
 from .models import Account, ContentAsset, ContentDraft, DmSubmission, InsightCheck, Job, now
 from .schemas import JobResponse, Strict
+from .workspace_preferences import preferences
 
 router = APIRouter(prefix="/api/v1")
 KIND = "compose_caption"
@@ -423,6 +424,7 @@ def run_one(engine):
     notice = None
     try:
         with Session(engine) as db:
+            config = preferences(db, account_id, config)
             draft = db.get(ContentDraft, payload["draft_id"])
             ids = draft.photo_assets or [draft.asset_id]
             kind = draft.kind

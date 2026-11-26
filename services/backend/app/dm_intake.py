@@ -44,6 +44,7 @@ from .music_context import named_song, named_track
 from .saved_audio import audio_candidate, mark_used, record_audio, spent_audio_assets, verify_audio
 from .schemas import JobResponse, ORMResponse, Page, Strict
 from .spotify_playlist import match_track, music_library, playlist_candidates, spotify_query
+from .workspace_preferences import preferences
 
 router = APIRouter(prefix="/api/v1")
 DM_KINDS = {"dm_poll", "dm_import", "dm_audio", "dm_replacement_music"}
@@ -122,7 +123,7 @@ class SubmissionResponse(ORMResponse):
 
 
 def inbox_view(inbox, db=None):
-    config = settings()
+    config = preferences(db, inbox.account_id, settings()) if db else settings()
     enabled_defaults = config.dm_defaults_apply(inbox.account_id)
     return InboxResponse(
         sender_id=inbox.sender_id,
@@ -619,6 +620,7 @@ def music_for_share(engine, lane, adapter, guard, source_music, caption, context
 def prepare_replacement_music(engine, lane, job_id, adapter, guard, clock):
     config = settings()
     with Session(engine) as db:
+        config = preferences(db, lane.account_id, config)
         job = db.get(Job, job_id)
         inbox = enabled_inbox(db, job)
         original = db.get(ContentDraft, job.payload["replacement_from"])
@@ -687,6 +689,7 @@ def prepare_replacement_music(engine, lane, job_id, adapter, guard, clock):
 def perform(engine, lane, job_id, adapter, guard, clock):
     config = settings()
     with Session(engine) as db:
+        config = preferences(db, lane.account_id, config)
         job = db.get(Job, job_id)
         inbox = enabled_inbox(db, job)
         account = db.get(Account, lane.account_id)
@@ -1318,7 +1321,7 @@ def record_page(db, inbox, thread_id, next_cursor, messages, at):
             job = queue_job(db, inbox, "dm_import", submission_id=submission.id)
             submission.job_id = job.id
             queue_processing_receipt(db, inbox, thread_id, job)
-            config = settings()
+            config = preferences(db, inbox.account_id, settings())
             if config.dm_defaults_apply(inbox.account_id, message.timestamp):
                 interval = config.dm_poll_interval_seconds
                 job.payload = {

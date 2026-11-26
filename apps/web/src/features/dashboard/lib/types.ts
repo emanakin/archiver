@@ -1,3 +1,5 @@
+import type { components } from "@/lib/api.generated";
+
 export type Mode = "mock" | "live";
 export type RelationshipState = "unknown" | "none" | "following" | "requested";
 export type JobState =
@@ -10,7 +12,7 @@ export type JobState =
   | "unknown"
   | "cancelled"
   | "blocked";
-export type JobKind = "follow" | "unfollow" | "reconcile" | "discover" | "connect" | "verify" | "import_following" | "insight" | "publish_photo" | "publish_story" | "publish_carousel" | "publish_reel" | "compose_caption" | "edit_caption" | "delete_story" | "delete_post" | "reconcile_content" | "dm_poll" | "dm_import" | "dm_audio" | "dm_receipt" | "music_diagnostic" | "import_source_photo";
+export type JobKind = components["schemas"]["JobResponse"]["kind"];
 export type FixtureState = "normal" | "empty" | "loading" | "error" | "stale";
 export type SessionState = "disconnected" | "connected" | "expired" | "needs_verification";
 

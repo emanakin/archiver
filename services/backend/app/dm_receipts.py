@@ -10,6 +10,7 @@ from .config import settings
 from .dm_reader import RECEIPT_PREFIX, identity
 from .execution_errors import OperationBlocked, OwnershipLost, PolicySkip, UncertainWrite
 from .models import Account, AttemptEvent, ContentDraft, DmSubmission, Job, SavedAudio
+from .workspace_preferences import preferences
 
 RECEIPT = "dm_receipt"
 PUBLICATIONS = {"publish_photo", "publish_carousel", "publish_story", "publish_reel"}
@@ -37,8 +38,8 @@ def posted_url(account, draft):
     return f"https://www.instagram.com/{path}/{code}/" if code else None
 
 
-def receipts_enabled(account):
-    config = settings()
+def receipts_enabled(db, account):
+    config = preferences(db, account.id, settings()) if account else settings()
     return bool(
         config.dm_self_receipts
         and account
@@ -77,7 +78,7 @@ def add_receipt(db, inbox, thread_id, origin, stage, title, location=None):
 
 def queue_processing_receipt(db, inbox, thread_id, job):
     account = db.get(Account, inbox.account_id)
-    if not receipts_enabled(account) or inbox.sender_id != account.instagram_id:
+    if not receipts_enabled(db, account) or inbox.sender_id != account.instagram_id:
         return
     title = (
         "Received. Checking this sound."
@@ -88,7 +89,7 @@ def queue_processing_receipt(db, inbox, thread_id, job):
 
 
 def queue_already_saved_audio(db, account, inbox, thread_id, job, message_id, audio):
-    if not receipts_enabled(account) or inbox.sender_id != account.instagram_id:
+    if not receipts_enabled(db, account) or inbox.sender_id != account.instagram_id:
         return
     status = {
         "feed_ready": "This sound is already saved and available for feed posts.",
@@ -112,7 +113,7 @@ def queue_receipt(db, account, job, state):
     from .dm_intake import sender_inbox
 
     if (
-        not receipts_enabled(account)
+        not receipts_enabled(db, account)
         or job.kind not in PUBLICATIONS | {"dm_import", "dm_audio"}
         or state == "queued"
     ):
@@ -220,7 +221,7 @@ def queue_receipt(db, account, job, state):
 def authorize_receipt(db, account, job, attempt, message, at):
     from .dm_intake import sender_inbox
 
-    config = settings()
+    config = preferences(db, account.id, settings())
     if (
         job.kind != RECEIPT
         or not config.dm_self_receipts

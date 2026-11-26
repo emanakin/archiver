@@ -87,7 +87,7 @@ export function ContentActions({ draft, dirty, previewReady, previewError, refre
     finally { setBusy(false); }
   };
   return <div className="draft-publication-controls">
-    <h3>{draft.status === "published" ? "Your published media" : draft.status === "deleted" ? "Publication removed" : "Review and publish"}</h3>
+    <h3>{draft.status === "published" ? "Your published media" : draft.status === "archived" ? "Publication archived" : draft.status === "deleted" ? "Publication removed" : "Review and publish"}</h3>
     {draft.status === "draft" && <><p>Review this {publication} and caption before publishing to @{data.account.username}.</p>
       {!!reviewReasons.length && <div role="status" id="publication-hold"><strong>Publication is on hold</strong><ul>{reviewReasons.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}
       <Button aria-describedby={reviewReasons.length ? "publication-hold" : undefined} disabled={busy || !!reviewReasons.length} onClick={() => { setRightsConfirmed(false); setReview("publish"); }}>Review publication</Button></>}
@@ -100,6 +100,7 @@ export function ContentActions({ draft, dirty, previewReady, previewError, refre
     </div>}</>}
     {draft.status === "published" && jobs.some(j=>j.payload.music_status==="unverified") && <p className="insight-note">Publication verified. Instagram did not report the soundtrack on the returned post.</p>}
     {draft.status === "deleted" && <p>Publication removed from Instagram.</p>}
+    {draft.status === "archived" && <p>Find this post in your Instagram archive.</p>}
     {["draft", "failed", "cancelled", "deleted"].includes(draft.status) && <Button variant="ghost" disabled={busy || pending} onClick={() => setReview("discard")}>Delete draft</Button>}
     {["failed", "cancelled"].includes(draft.status) && <p>This publication was held before confirmation. Review its job; create a new draft only after checking that Instagram did not receive a publication.</p>}
     {operations.isError && <Button variant="outline" onClick={() => void operations.refetch()}>Retry publication history</Button>}

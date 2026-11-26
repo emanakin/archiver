@@ -8,7 +8,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2.6,<3",
-  "SQLAlchemy>=2.0,<2.1", "psycopg[binary]>=3.2,<4", "alembic>=1.14,<2", "tzdata>=2025.1", "cryptography>=46,<51", "Pillow>=13,<14", "botocore>=1.44.6,<2"
+  "SQLAlchemy>=2.0,<2.1", "psycopg[binary]>=3.2,<4", "alembic>=1.14,<2", "tzdata>=2025.1", "cryptography>=46,<51", "Pillow>=13,<14", "botocore>=1.44.6,<2", "google-auth[requests]>=2.40,<3"
 ]
 [project.optional-dependencies]
 instagram = ["instagrapi==3.2.15"]

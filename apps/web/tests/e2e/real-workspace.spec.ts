@@ -24,6 +24,7 @@ async function backend(page: Page, options: { empty?: boolean; connected?: boole
     const selected = url.searchParams.get("account_id") === second.id || url.pathname.includes(second.id) ? second : account;
     const path = url.pathname.replace("/api/v1", "").replace(second.id, id);
     const respond = (value: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(value) });
+    if (path === "/me") return respond({ auth_mode: "legacy", email: null, workspace_id: null });
     if (path === "/content-operations") return respond({ ...empty, items: state.operations, total: state.operations.length });
     if (path.endsWith("/spotify-playlist")) return respond(null);
     if (path.endsWith("/music-library")) {

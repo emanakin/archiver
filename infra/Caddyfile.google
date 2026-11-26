@@ -1,0 +1,30 @@
+{
+	admin off
+	auto_https disable_redirects
+}
+
+http://{$SITE_ADDRESS} {
+	redir https://{$SITE_ADDRESS}{uri} 308
+}
+
+{$SITE_ADDRESS} {
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		X-Frame-Options DENY
+	}
+	@api path /api/* /auth/*
+	handle @api {
+		reverse_proxy api:8000 {
+			header_up X-Internal-Token {$INTERNAL_API_TOKEN}
+			header_up -Authorization
+		}
+	}
+	handle {
+		reverse_proxy web:3000 {
+			header_up -Authorization
+			header_up -X-Internal-Token
+		}
+	}
+}

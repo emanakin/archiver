@@ -46,3 +46,42 @@ Watch disk space, backup age, due queue age, worker heartbeat, blocked accounts 
 ## Verification limits
 
 See VALIDATION.md. Docker daemon availability is required for Compose runtime checks. Local unit tests cannot validate PostgreSQL row-lock semantics, container DNS, gateway authentication or TLS issuance.
+
+## Google workspace rollout
+
+The Google overlay uses the existing public HTTPS origin. Staging uses a separate
+PostgreSQL database and synthetic Instagram accounts. Keep the public gateway on
+its existing configuration until the owner and a second Google account have
+verified sign-in and workspace isolation.
+
+In Google Auth Platform, create a **Web application** client. Its authorized
+redirect is `https://myarchiver.net/auth/google/callback` for production.
+Use a separate client and exact callback for the staging hostname. Store the
+downloaded web client JSON at `secrets/google_oauth.json`. The container process
+runs as UID 10001 and needs read access to that file. Keep the file outside Git
+and restrict host access. Configure the Google audience for the two test users.
+
+After taking a database backup and building the new release, run this from the
+deployment checkout using the site's existing Compose overlays. The role script
+writes private database URLs to its output file and preserves the owner's
+existing default playlist.
+
+```sh
+docker compose --env-file .env.production -f compose.yaml run --rm migrate
+docker compose --env-file .env.production -f compose.yaml run --rm --no-deps -T \
+  --user 0 -v "$PWD/secrets:/output" migrate python - /output/google-db.env \
+  < scripts/provision_workspace_roles.py
+```
+
+Add `ARCHIVE_OWNER_EMAIL` and the approved `ARCHIVE_SIGNUP_TEST_EMAILS` to
+`secrets/google-db.env`. Leave `ARCHIVE_SIGNUP_OPEN=false`. Pass that file as a
+second `--env-file` and append `-f compose.google.yaml` after the production
+overlay. Recreate `api`, `worker`, `web`, and `proxy` together. Confirm that
+the owner sees both existing Instagram accounts and the pilot sees an empty
+workspace. Check that the pilot cannot retrieve the owner's known draft preview
+or job URL. Once both checks pass and Google is ready for the production
+audience, set `ARCHIVE_SIGNUP_OPEN=true` and recreate the API.
+
+Keep the Google gateway in place once a second workspace exists. To suspend
+admission during an incident, set `ARCHIVE_SIGNUP_OPEN=false`, clear the pilot
+allowlist, and recreate the API. Existing workspaces can still sign in.
