@@ -13,7 +13,16 @@ from app import content_publication as content
 from app.content_images import asset_path, validate_image
 from app.execution_errors import OperationBlocked, TransientRead, UncertainWrite
 from app.executor import Executor
-from app.models import Account, AccountSettings, ActionAttempt, ContentAsset, ContentDraft, Job, now
+from app.models import (
+    Account,
+    AccountSettings,
+    ActionAttempt,
+    AuditEvent,
+    ContentAsset,
+    ContentDraft,
+    Job,
+    now,
+)
 from app.schemas import SettingsValues
 
 
@@ -33,6 +42,51 @@ def draft_fixture(db, aid, root, kind="feed_photo"):
     db.add(AccountSettings(account_id=aid, values=SettingsValues(request_ceiling=100).model_dump()))
     db.commit()
     return draft.id
+
+
+def test_archive_requires_exact_linked_replacement_and_playback(system, monkeypatch, tmp_path):
+    client, db, account, _ = system
+    original = db.get(ContentDraft, draft_fixture(db, account.id, tmp_path))
+    monkeypatch.setattr(content, "settings", lambda: SimpleNamespace(adapter_mode="live"))
+    original.status, original.media_id = "published", "123_999"
+    replacement = ContentDraft(
+        account_id=account.id,
+        asset_id=original.asset_id,
+        kind=original.kind,
+        caption="New caption",
+        media_id="321_999",
+        status="published",
+        music_canonical_id="98",
+    )
+    db.add(replacement)
+    db.flush()
+    publish = Job(
+        account_id=account.id,
+        idempotency_key="replacement",
+        kind="publish_photo",
+        state="succeeded",
+        payload={"snapshot": content.snapshot(replacement)},
+    )
+    db.add(publish)
+    db.flush()
+    replacement.publication_job_id = publish.id
+    db.commit()
+    route = f"/api/v1/content-drafts/{original.id}/archive-replaced"
+    body = {"expected_revision": 1, "replacement_id": replacement.id, "playback_confirmed": True}
+    assert client.post(route, json=body).status_code == 409
+    db.add(
+        AuditEvent(
+            account_id=account.id,
+            event="photo_replacement_prepared",
+            detail={"original_id": original.id, "replacement_id": replacement.id},
+        )
+    )
+    db.commit()
+    assert client.post(route, json={**body, "playback_confirmed": False}).status_code == 422
+    result = client.post(route, json=body)
+    assert result.status_code == 202
+    assert result.json()["kind"] == "archive_post"
+    assert db.get(Job, result.json()["id"]).payload["media_id"] == "123_999"
 
 
 @pytest.mark.skipif(not os.getenv("TEST_POSTGRES_URL"), reason="Requires PostgreSQL account lane")

@@ -45,7 +45,7 @@ CONFIGURE = {
     "publish_carousel": "configure_carousel",
     "publish_reel": "configure_reel",
 }
-REMOVAL_KINDS = {"delete_post", "delete_story"}
+REMOVAL_KINDS = {"delete_post", "delete_story", "archive_post"}
 WRITE_KINDS = set(CONFIGURE) | {"edit_caption"} | REMOVAL_KINDS
 CONTENT_KINDS = WRITE_KINDS | {"reconcile_content"}
 
@@ -68,6 +68,12 @@ class MediaApproval(PublicationApproval):
     operation: Literal["edit_caption", "delete_story", "delete_post"]
     caption: str = Field(default="", max_length=2200)
     idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+class ArchiveReplacementApproval(Strict):
+    expected_revision: int = Field(ge=1)
+    replacement_id: str = Field(min_length=36, max_length=36)
+    playback_confirmed: Literal[True]
 
 
 class ReconcileApproval(Strict):
@@ -107,7 +113,7 @@ def carousel_assets(draft):
 def supports_change(kind, operation):
     if operation == "delete_story":
         return kind == "story_photo"
-    if operation == "delete_post":
+    if operation in {"delete_post", "archive_post"}:
         return kind in {"feed_photo", "feed_carousel"}
     return kind == "feed_photo" and operation == "edit_caption"
 
@@ -378,6 +384,84 @@ def approve_media_change(draft_id: str, body: MediaApproval, db: Session = Depen
     return job
 
 
+def verified_replacement(db, original, replacement_id):
+    replacement = db.get(ContentDraft, replacement_id)
+    if (
+        not replacement
+        or replacement.account_id != original.account_id
+        or replacement.id == original.id
+        or replacement.status != "published"
+        or replacement.discarded_at
+        or not replacement.media_id
+        or replacement.media_id == original.media_id
+        or replacement.kind != original.kind
+        or replacement.asset_id != original.asset_id
+        or replacement.photo_assets != original.photo_assets
+        or replacement.photo_order != original.photo_order
+    ):
+        return False
+    publication = (
+        db.get(Job, replacement.publication_job_id) if replacement.publication_job_id else None
+    )
+    if (
+        not publication
+        or publication.account_id != original.account_id
+        or publication.state != "succeeded"
+    ):
+        return False
+    saved = publication.payload.get("snapshot", {})
+    if not (
+        saved.get("caption") and (saved.get("playlist_music") or saved.get("music_canonical_id"))
+    ):
+        return False
+    return (
+        db.scalar(
+            select(AuditEvent.id)
+            .where(
+                AuditEvent.account_id == original.account_id,
+                AuditEvent.event == "photo_replacement_prepared",
+                AuditEvent.detail["original_id"].as_string() == original.id,
+                AuditEvent.detail["replacement_id"].as_string() == replacement.id,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+@router.post(
+    "/content-drafts/{draft_id}/archive-replaced", status_code=202, response_model=JobResponse
+)
+def archive_replaced(
+    draft_id: str, body: ArchiveReplacementApproval, db: Session = Depends(get_db)
+):
+    account, draft = locked_draft(db, draft_id)
+    ready(account)
+    if (
+        draft.status != "published"
+        or draft.discarded_at
+        or not draft.media_id
+        or draft.revision != body.expected_revision
+        or not supports_change(draft.kind, "archive_post")
+        or not verified_replacement(db, draft, body.replacement_id)
+    ):
+        raise HTTPException(409, "Choose the published original and its verified replacement")
+    job = enqueue_content(
+        db,
+        account,
+        draft,
+        "archive_post",
+        {
+            "media_id": draft.media_id,
+            "replacement_id": body.replacement_id,
+            "playback_confirmed": body.playback_confirmed,
+        },
+        f"archive-replaced:{draft.id}:{draft.revision}",
+    )
+    db.commit()
+    return job
+
+
 @router.get("/content-operations", response_model=ContentOperations)
 def list_operations(account_id: str, db: Session = Depends(get_db)):
     required(db, Account, account_id)
@@ -429,6 +513,7 @@ def request_reconciliation(draft_id: str, body: ReconcileApproval, db: Session =
             "draft_id": draft.id,
             "revision": draft.revision,
             "parent_id": parent.id,
+            "parent_kind": parent.kind,
             "media_ref": str(media_ref),
         },
     )
@@ -445,6 +530,12 @@ def validate_intent(db, job):
         return draft
     if not job.payload.get("approved_at") or draft.revision != job.payload.get("revision"):
         raise OperationBlocked("Media action approval is missing or its revision changed")
+    if job.kind == "archive_post" and (
+        draft.status != "published"
+        or job.payload.get("playback_confirmed") is not True
+        or not verified_replacement(db, draft, job.payload.get("replacement_id"))
+    ):
+        raise OperationBlocked("The original no longer has an approved replacement")
     if direct := job.payload.get("dm_publication"):
         from .dm_intake import sender_inbox
 
@@ -458,10 +549,9 @@ def validate_intent(db, job):
             raise OperationBlocked("Direct publication permission changed")
         if job.kind == "publish_reel" and not reel_autopost_ready(db, job.account_id):
             raise OperationBlocked("Reel autopost permission changed")
-        if (
-            (draft.caption_review or {}).get("state") == "ready"
-            and not settings().dm_caption_autopost
-        ):
+        if (draft.caption_review or {}).get(
+            "state"
+        ) == "ready" and not settings().dm_caption_autopost:
             raise OperationBlocked("Caption-driven autopost is awaiting review")
     if unresolved(db, job.account_id, job.id):
         raise OutcomePending("An earlier media action needs reconciliation")
@@ -585,7 +675,9 @@ def verify_reconciled_reel(parent, draft, observation):
             observed_id != known_id.split("_", 1)[0]
             if known_id
             else not taken_at
-            or not dispatch - timedelta(seconds=5) <= aware(taken_at) <= dispatch + timedelta(minutes=10)
+            or not dispatch - timedelta(seconds=5)
+            <= aware(taken_at)
+            <= dispatch + timedelta(minutes=10)
         )
     ):
         raise PublicationCheckFailed(
@@ -681,11 +773,19 @@ def perform(engine, lane, job_id, adapter, guard, clock):
             observation["caption"] != payload["snapshot"]["caption"]
             or observation["media_id"].split("_", 1)[0] == source_media_id
         ):
-            raise PublicationCheckFailed("Instagram did not confirm the new Reel and approved caption.")
+            raise PublicationCheckFailed(
+                "Instagram did not confirm the new Reel and approved caption."
+            )
         music_status = soundtrack_status(payload | result, observation)
     elif kind == "reconcile_content":
         media_id = adapter.resolve_media_ref(payload["media_ref"])
-        observation = adapter.owned_media(media_id, actor)
+        observation = (
+            adapter.archived_media(media_id, actor)
+            if payload.get("parent_kind") == "archive_post"
+            else adapter.owned_media(media_id, actor)
+        )
+        if not observation:
+            raise PublicationCheckFailed("Instagram has not confirmed the archived original.")
     else:
         media_id = payload["media_id"]
         observation = adapter.owned_media(media_id, actor)
@@ -694,8 +794,15 @@ def perform(engine, lane, job_id, adapter, guard, clock):
             if not supports_change(observation["kind"], kind):
                 raise OperationBlocked("The media type does not match the approved removal")
             guard.media_removal_kind = kind
-            remove = adapter.delete_post if kind == "delete_post" else adapter.delete_story
-            remove(media_id)
+            if kind == "archive_post":
+                adapter.archive_post(media_id)
+                if not adapter.archived_media(media_id, actor):
+                    raise PublicationCheckFailed(
+                        "Instagram has not confirmed the archived original."
+                    )
+            else:
+                remove = adapter.delete_post if kind == "delete_post" else adapter.delete_story
+                remove(media_id)
         else:
             if observation["kind"] != "feed_photo":
                 raise OperationBlocked("Only a confirmed photo post caption can be edited here")
@@ -719,7 +826,7 @@ def perform(engine, lane, job_id, adapter, guard, clock):
                 or parent.state not in {"unknown", "blocked"}
             ):
                 raise OperationBlocked("Original media action is no longer awaiting reconciliation")
-            if parent.kind in REMOVAL_KINDS:
+            if parent.kind in REMOVAL_KINDS - {"archive_post"}:
                 raise PublicationCheckFailed(
                     "The media is still accessible. Removal remains unconfirmed."
                 )
@@ -731,7 +838,7 @@ def perform(engine, lane, job_id, adapter, guard, clock):
                     "The requested caption is not confirmed; do not replay the write"
                 )
             expected_kind = parent.payload.get("snapshot", {}).get("kind", "feed_photo")
-            if observation["kind"] != expected_kind:
+            if parent.kind != "archive_post" and observation["kind"] != expected_kind:
                 raise OperationBlocked(
                     "The linked media does not match the approved publication type"
                 )
@@ -771,7 +878,7 @@ def perform(engine, lane, job_id, adapter, guard, clock):
                 )
             kind = parent.kind
         if kind in REMOVAL_KINDS:
-            draft.status = "deleted"
+            draft.status = "archived" if kind == "archive_post" else "deleted"
         else:
             draft.media_id, draft.status = observation["media_id"], "published"
             if kind == "edit_caption":

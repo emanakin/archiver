@@ -362,6 +362,24 @@ class LiveInstagramAdapter:
     def delete_post(self, media_id):
         self.remove_photo(media_id)
 
+    def archive_post(self, media_id):
+        if self.client.media_archive(media_id) is not True:
+            from ..execution_errors import UncertainWrite
+
+            raise UncertainWrite("Instagram did not acknowledge the archive action")
+
+    def archived_media(self, media_id, actor_id):
+        pk = str(media_id).split("_", 1)[0]
+        cursor = ""
+        for _ in range(2):
+            items, cursor = self.client.archive_medias_paginated_v1(amount=30, end_cursor=cursor)
+            for item in items:
+                if str(item.pk) == pk and str(item.user.pk) == str(actor_id):
+                    return {"media_id": str(item.id)}
+            if not cursor:
+                break
+        return None
+
     def remove_photo(self, media_id):
         if self.client.media_delete(media_id) is not True:
             from ..execution_errors import UncertainWrite

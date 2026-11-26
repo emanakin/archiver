@@ -203,7 +203,7 @@ def attach_transport_guard(session, guard):
                 "/api/v1/media/configure_to_clips/",
             }
             change = re.fullmatch(
-                r"/api/v1/media/([0-9]+(?:_[0-9]+)?)/(edit_media|delete)/", url.path
+                r"/api/v1/media/([0-9]+(?:_[0-9]+)?)/(edit_media|delete|only_me)/", url.path
             )
             if upload and url.hostname == "i.instagram.com":
                 try:
@@ -266,10 +266,20 @@ def attach_transport_guard(session, guard):
                             str(child.get("upload_id", "")) for child in children
                         ]
                 else:
+                    endpoint = change.group(2)
+                    remove_kind = getattr(guard, "media_removal_kind", "delete_story")
+                    if endpoint == "delete" and remove_kind not in {"delete_post", "delete_story"}:
+                        raise OperationBlocked("The approved action does not delete media")
+                    if endpoint == "only_me" and str(values.get("media_id")) != change.group(1):
+                        raise OperationBlocked(
+                            "The archive form does not identify the original media"
+                        )
                     media = {
                         "operation": "edit_caption"
-                        if change.group(2) == "edit_media"
-                        else getattr(guard, "media_removal_kind", "delete_story"),
+                        if endpoint == "edit_media"
+                        else "archive_post"
+                        if endpoint == "only_me"
+                        else remove_kind,
                         "media_id": change.group(1),
                         "caption": values.get("caption_text", ""),
                     }

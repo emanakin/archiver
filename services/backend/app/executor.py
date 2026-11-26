@@ -500,6 +500,7 @@ class Executor:
                             "edit_caption",
                             "delete_story",
                             "delete_post",
+                            "archive_post",
                             "reconcile_content",
                             RECEIPT,
                         }
@@ -536,6 +537,11 @@ class Executor:
                         units = 2
                     if job.kind in CONTENT_KINDS:
                         units = 4 if job.kind in WRITE_KINDS else 1
+                        if (
+                            job.kind == "reconcile_content"
+                            and job.payload.get("parent_kind") == "archive_post"
+                        ):
+                            units = 2
                         if job.kind == "publish_carousel":
                             units = len(job.payload["child_upload_ids"]) + 2
                         elif job.kind == "publish_reel":

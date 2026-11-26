@@ -1395,6 +1395,55 @@
         }
       }
     },
+    "/api/v1/content-drafts/{draft_id}/archive-replaced": {
+      "post": {
+        "summary": "Archive Replaced",
+        "operationId": "archive_replaced_api_v1_content_drafts__draft_id__archive_replaced_post",
+        "parameters": [
+          {
+            "name": "draft_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Draft Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveReplacementApproval"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/content-operations": {
       "get": {
         "summary": "List Operations",
@@ -4205,6 +4254,34 @@
         ],
         "title": "ApprovalInput"
       },
+      "ArchiveReplacementApproval": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "replacement_id": {
+            "type": "string",
+            "maxLength": 36,
+            "minLength": 36,
+            "title": "Replacement Id"
+          },
+          "playback_confirmed": {
+            "type": "boolean",
+            "const": true,
+            "title": "Playback Confirmed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "replacement_id",
+          "playback_confirmed"
+        ],
+        "title": "ArchiveReplacementApproval"
+      },
       "AssetResponse": {
         "properties": {
           "id": {
@@ -6318,10 +6395,12 @@
               "edit_caption",
               "delete_story",
               "delete_post",
+              "archive_post",
               "reconcile_content",
               "dm_poll",
               "dm_import",
               "dm_audio",
+              "dm_replacement_music",
               "dm_receipt",
               "music_diagnostic",
               "import_source_photo"

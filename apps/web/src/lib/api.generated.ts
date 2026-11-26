@@ -435,6 +435,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/content-drafts/{draft_id}/archive-replaced": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Replaced */
+        post: operations["archive_replaced_api_v1_content_drafts__draft_id__archive_replaced_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/content-operations": {
         parameters: {
             query?: never;
@@ -1283,6 +1300,18 @@ export interface components {
              */
             choice: "approved" | "code";
         };
+        /** ArchiveReplacementApproval */
+        ArchiveReplacementApproval: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Replacement Id */
+            replacement_id: string;
+            /**
+             * Playback Confirmed
+             * @constant
+             */
+            playback_confirmed: true;
+        };
         /** AssetResponse */
         AssetResponse: {
             /** Id */
@@ -1999,7 +2028,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "follow" | "unfollow" | "reconcile" | "discover" | "connect" | "verify" | "import_following" | "insight" | "publish_photo" | "publish_story" | "publish_carousel" | "publish_reel" | "compose_caption" | "edit_caption" | "delete_story" | "delete_post" | "reconcile_content" | "dm_poll" | "dm_import" | "dm_audio" | "dm_receipt" | "music_diagnostic" | "import_source_photo";
+            kind: "follow" | "unfollow" | "reconcile" | "discover" | "connect" | "verify" | "import_following" | "insight" | "publish_photo" | "publish_story" | "publish_carousel" | "publish_reel" | "compose_caption" | "edit_caption" | "delete_story" | "delete_post" | "archive_post" | "reconcile_content" | "dm_poll" | "dm_import" | "dm_audio" | "dm_replacement_music" | "dm_receipt" | "music_diagnostic" | "import_source_photo";
             /**
              * State
              * @enum {string}
@@ -3963,6 +3992,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["MediaApproval"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_replaced_api_v1_content_drafts__draft_id__archive_replaced_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveReplacementApproval"];
             };
         };
         responses: {
